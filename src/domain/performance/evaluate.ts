@@ -8,13 +8,12 @@ function ratio(numerator: number, denominator: number, label: string): number {
 
 function correctedSpeed(input: PerformanceInput): number {
   const temperatureFactor = Math.sqrt(input.referenceTemperatureK / input.ambientTemperatureK);
-  const pressureFactor = ratio(input.referencePressureKpa, input.ambientPressureKpa, 'Ambient pressure');
-  return input.rpm * temperatureFactor * pressureFactor ** 0.05;
+  return input.rpm * temperatureFactor;
 }
 
 function correctedFlow(input: PerformanceInput): number {
-  const temperatureFactor = Math.sqrt(input.ambientTemperatureK / input.referenceTemperatureK);
-  const pressureFactor = ratio(input.ambientPressureKpa, input.referencePressureKpa, 'Reference pressure');
+  const temperatureFactor = Math.sqrt(input.referenceTemperatureK / input.ambientTemperatureK);
+  const pressureFactor = ratio(input.referencePressureKpa, input.ambientPressureKpa, 'Ambient pressure');
   return input.fuelFlowKgPerSecond * temperatureFactor * pressureFactor;
 }
 
@@ -30,10 +29,10 @@ export function evaluatePerformance(input: PerformanceInput): PerformanceSnapsho
   invariant(input.ambientPressureKpa > 0 && input.inletPressureKpa > 0 && input.compressorOutletPressureKpa > 0, 'INVALID_PRESSURE', 'Pressures must be absolute and positive');
   invariant(input.referenceRpm > 0 && input.rpm >= 0 && input.fuelFlowKgPerSecond >= 0, 'INVALID_ENGINE_STATE', 'RPM and fuel flow are outside physical bounds');
   invariant(input.referencePressureKpa > 0, 'INVALID_REFERENCE_STATE', 'Reference pressure must be positive');
-  const pressureRatio = input.compressorOutletPressureKpa / input.ambientPressureKpa;
+  const pressureRatio = input.compressorOutletPressureKpa / input.inletPressureKpa;
   const correctedRpm = correctedSpeed(input);
   const correctedFuelFlowKgPerSecond = correctedFlow(input);
-  const thermalMarginK = Math.max(0, 1_150 - input.turbineInletTemperatureK) / Math.max(input.referenceTemperatureK / 288, 1);
+  const thermalMarginK = Math.max(0, 1_150 - input.turbineInletTemperatureK);
   const compressorEfficiency = estimateEfficiency(input, pressureRatio);
   const baseline = input.baselineThrustKn ?? 0;
   const estimatedThrustKn = baseline + correctedFuelFlowKgPerSecond * 42 * compressorEfficiency * Math.log1p(Math.max(0, pressureRatio));
