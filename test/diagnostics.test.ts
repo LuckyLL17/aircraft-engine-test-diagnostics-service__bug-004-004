@@ -20,6 +20,39 @@ test('performance produces physical normalized indicators', () => {
   assert.ok(result.compressorEfficiency >= 0 && result.compressorEfficiency <= 1);
 });
 
+test('performance corrections use inlet, ambient and reference states consistently', () => {
+  const input = {
+    rpm: 9_000,
+    fuelFlowKgPerSecond: 1,
+    compressorOutletPressureKpa: 500,
+    turbineInletTemperatureK: 1_000,
+    ambientPressureKpa: 50,
+    ambientTemperatureK: 250,
+    inletPressureKpa: 49,
+    referenceRpm: 10_000,
+    referenceTemperatureK: 288,
+    referencePressureKpa: 100,
+    baselineThrustKn: 12,
+  };
+  const result = evaluatePerformance(input);
+
+  assert.equal(result.pressureRatio, 500 / 49);
+  assert.equal(result.correctedRpm, 9_000 * Math.sqrt(288 / 250));
+  assert.equal(result.correctedFuelFlowKgPerSecond, Math.sqrt(250 / 288) * (100 / 50));
+  assert.equal(result.thermalMarginK, 150);
+  assert.equal(result.estimatedThrustKn, 12 + result.correctedFuelFlowKgPerSecond * 42 * result.compressorEfficiency * Math.log1p(result.pressureRatio));
+});
+
+test('performance preserves zero fuel flow and baseline thrust', () => {
+  const result = evaluatePerformance({ rpm: 0, fuelFlowKgPerSecond: 0, compressorOutletPressureKpa: 100, turbineInletTemperatureK: 1_200, ambientPressureKpa: 50, ambientTemperatureK: 250, inletPressureKpa: 49, referenceRpm: 10_000, referenceTemperatureK: 288, referencePressureKpa: 100, baselineThrustKn: 8 });
+
+  assert.equal(result.correctedRpm, 0);
+  assert.equal(result.correctedFuelFlowKgPerSecond, 0);
+  assert.equal(result.estimatedThrustKn, 8);
+  assert.equal(result.thermalMarginK, 0);
+  assert.ok(result.compressorEfficiency >= 0 && result.compressorEfficiency <= 1);
+});
+
 test('vibration evidence is grouped by correlated source', () => {
   const result = diagnoseVibration([
     { evidenceId: 'a', sensorId: 's1', sourceGroup: 'g1', windowStartMs: 0, windowEndMs: 100, feature: 'bearing-envelope', fault: 'bearing', likelihoodRatio: 4, amplitude: 2 },

@@ -1,25 +1,18 @@
 import { invariant } from '../errors.ts';
 import type { PerformanceInput, PerformanceSnapshot } from '../types.ts';
 
-function ratio(numerator: number, denominator: number, label: string): number {
-  invariant(denominator > 0, 'INVALID_REFERENCE_STATE', `${label} reference must be positive`);
-  return numerator / denominator;
-}
-
 function correctedSpeed(input: PerformanceInput): number {
-  const temperatureFactor = Math.sqrt(input.referenceTemperatureK / input.ambientTemperatureK);
-  const pressureFactor = ratio(input.referencePressureKpa, input.ambientPressureKpa, 'Ambient pressure');
-  return input.rpm * temperatureFactor * pressureFactor ** 0.05;
+  return input.rpm * Math.sqrt(input.referenceTemperatureK / input.ambientTemperatureK);
 }
 
 function correctedFlow(input: PerformanceInput): number {
   const temperatureFactor = Math.sqrt(input.ambientTemperatureK / input.referenceTemperatureK);
-  const pressureFactor = ratio(input.ambientPressureKpa, input.referencePressureKpa, 'Reference pressure');
+  const pressureFactor = input.referencePressureKpa / input.ambientPressureKpa;
   return input.fuelFlowKgPerSecond * temperatureFactor * pressureFactor;
 }
 
-function estimateEfficiency(input: PerformanceInput, pressureRatio: number): number {
-  const speedDelta = (input.rpm - input.referenceRpm) / Math.max(input.referenceRpm, 1);
+function estimateEfficiency(input: PerformanceInput, correctedRpm: number, pressureRatio: number): number {
+  const speedDelta = (correctedRpm - input.referenceRpm) / Math.max(input.referenceRpm, 1);
   const pressurePenalty = Math.max(0, pressureRatio - 8) * 0.03;
   return Math.max(0, Math.min(1, 0.72 + 0.02 * speedDelta - pressurePenalty));
 }
@@ -30,11 +23,11 @@ export function evaluatePerformance(input: PerformanceInput): PerformanceSnapsho
   invariant(input.ambientPressureKpa > 0 && input.inletPressureKpa > 0 && input.compressorOutletPressureKpa > 0, 'INVALID_PRESSURE', 'Pressures must be absolute and positive');
   invariant(input.referenceRpm > 0 && input.rpm >= 0 && input.fuelFlowKgPerSecond >= 0, 'INVALID_ENGINE_STATE', 'RPM and fuel flow are outside physical bounds');
   invariant(input.referencePressureKpa > 0, 'INVALID_REFERENCE_STATE', 'Reference pressure must be positive');
-  const pressureRatio = input.compressorOutletPressureKpa / input.ambientPressureKpa;
+  const pressureRatio = input.compressorOutletPressureKpa / input.inletPressureKpa;
   const correctedRpm = correctedSpeed(input);
   const correctedFuelFlowKgPerSecond = correctedFlow(input);
-  const thermalMarginK = Math.max(0, 1_150 - input.turbineInletTemperatureK) / Math.max(input.referenceTemperatureK / 288, 1);
-  const compressorEfficiency = estimateEfficiency(input, pressureRatio);
+  const thermalMarginK = Math.max(0, 1_150 - input.turbineInletTemperatureK);
+  const compressorEfficiency = estimateEfficiency(input, correctedRpm, pressureRatio);
   const baseline = input.baselineThrustKn ?? 0;
   const estimatedThrustKn = baseline + correctedFuelFlowKgPerSecond * 42 * compressorEfficiency * Math.log1p(Math.max(0, pressureRatio));
   return { ...input, pressureRatio, correctedRpm, correctedFuelFlowKgPerSecond, estimatedThrustKn, compressorEfficiency, thermalMarginK };
